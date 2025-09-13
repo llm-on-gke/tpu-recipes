@@ -27,8 +27,30 @@ In step 3, use the jax-stable-stack image containing JAX 0.6.1:
 BASE_IMAGE=us-docker.pkg.dev/cloud-tpu-images/jax-ai-image/tpu:jax0.6.1-rev1
 bash docker_build_dependency_image.sh DEVICE=tpu MODE=stable_stack BASEIMAGE=${BASE_IMAGE}
 ```
+Tag and push the image to atifact registry
+```
+docker tag ${BASE_IMAGE} us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_base_image:latest
+gcloud auth configure-docker us-east4-docker.pkg.dev
+docker push us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_base_image:latest #replace with your own image path
+```
 
 ## Run Maxtext Llama3.1-8B workloads on GKE
+
+### Llama3.1-8B Fine Tuning:
+
+Task 3 from this doc, [MAXTEXT_Finetuning](https://docs.google.com/document/d/1RSUNdGCYmiMOYRGKgQRvzW_RMGb8QqEDSn6AIjj9HZs/edit?tab=t.0#heading=h.rt8cccq2l55u)
+
+#### Prepare TPU VM or GKE TPU Cluster to run prerequisistes
+```
+bash spot-tpu-preprocess-nodepool.sh
+```
+
+
+#### Download dataset
+
+
+
+#### Download checkpoints
 
 ### Starting workload
 
