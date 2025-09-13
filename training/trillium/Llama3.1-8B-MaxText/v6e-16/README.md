@@ -13,6 +13,15 @@ In step 1, use the MaxText [tpu-recipes-v0.1.4](https://github.com/AI-Hypercompu
 git checkout tpu-recipes-v0.1.4
 ```
 
+python3 -m venv ~/venv-maxtext
+source ~/venv-maxtext/bin/activate
+bash setup.sh
+
+if machines can not run pip install, 
+install uv, replace all pip install with uv pip install 
+
+
+
 In step 3, use the jax-stable-stack image containing JAX 0.6.1:
 ```
 BASE_IMAGE=us-docker.pkg.dev/cloud-tpu-images/jax-ai-image/tpu:jax0.6.1-rev1
