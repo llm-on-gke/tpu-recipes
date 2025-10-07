@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: headless-svc
+spec:
+  clusterIP: None
+  selector:
+    job-name: vllm-v6e-default
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vllm-v6e-default
+spec:
+  backoffLimit: 0
+  completions: 1
+  parallelism: 1
+  completionMode: Indexed
+  template:
+    metadata:
+      annotations:
+        gke-gcsfuse/volumes: "true"
+        gke-gcsfuse/cpu-limit: "0"
+        gke-gcsfuse/memory-limit: "0"
+        gke-gcsfuse/ephemeral-storage-limit: "0"
+    spec:
+      subdomain: headless-svc
+      restartPolicy: Never
+      nodeSelector:
+                cloud.google.com/gke-tpu-accelerator: tpu-v6e-slice
+                cloud.google.com/gke-tpu-topology: 2x4
+      volumes:
+            - name: output
+              emptyDir: {}
+            - name: gcs-fuse-csi-ephemeral
+              csi:
+                   driver: gcsfuse.csi.storage.gke.io
+                   readOnly: false
+                   volumeAttributes:
+                      bucketName: rick-maxdiffusion
+                      mountOptions: "implicit-dirs,file-cache:enable-parallel-downloads:true,file-cache:parallel-downloads-per-file:100,file-cache:max-parallel-downloads:-1,file-cache:download-chunk-size-mb:10,file-cache:max-size-mb:-1"
+    
+      serviceAccountName: storage-access   
+      containers:
+              - name: vllm
+                image: vllm/vllm-tpu:nightly
+                imagePullPolicy: Always
+                ports:
+                - containerPort: 8471
+                - containerPort: 8080 # Port for MXLA coordinator
+                securityContext:
+                  privileged: true
+                env:
+                - name: JOB_NAME
+                  value: "vllm-v6e-default"
+                - name: HUGGING_FACE_HUB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: huggingface
+                      key: HF_TOKEN
+                - name: TRANSFORMERS_CACHE
+                  value: /.cache
+                - name: shm-size
+                  value: 16g
+                - name: VLLM_XLA_CACHE_PATH
+                  value: "/data"
+                - name: VLLM_USE_V1
+                  value: "1"
+                command:
+                - bash
+                - -c
+                - |
+                  
+                  vllm serve Qwen/Qwen2.5-VL-32B-Instruct \
+                  --host=0.0.0.0 \
+                  --port=8000 \
+                  --tensor-parallel-size 8 \
+                  --pipeline-parallel-size 1 \
+                  --dtype bfloat16 \
+                  --gpu-memory-utilization 0.98 \
+                  --max-model-len 16384 \
+                  --limit-mm-per-prompt '{"image": 10, "video": 0}' \
+                  --mm-processor-kwargs '{"max_pixels": 1003520}' \
+                  --guided-decoding-backend "xgrammar" \
+                  --disable-chunked-mm-input 
+                   
+                resources:
+                  limits:
+                    google.com/tpu: 8
+                volumeMounts:
+                - name: output
+                  mountPath: /output
+                - name: gcs-fuse-csi-ephemeral
+                  mountPath: /data
+
+
