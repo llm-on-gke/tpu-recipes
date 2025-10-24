@@ -1,0 +1,101 @@
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: tpu7x-test-maxtext-job
+spec:
+  ttlSecondsAfterFinished: 1200
+  suspend: False
+  network:
+    enableDNSHostnames: true
+  replicatedJobs:
+  - name: workers
+    replicas: 1
+    template:
+      spec:
+        parallelism: 4
+        completions: 4
+        backoffLimit: 0
+        template:
+          metadata:
+            annotations:
+                #iam.gke.io/gcp-service-account: "${GCP_SERVICE_ACCOUNT}"
+              gke-gcsfuse/volumes: "true"
+          spec:
+              #subdomain: headless-svc-maxtext
+              #hostNetwork: true
+              #dnsPolicy: ClusterFirstWithHostNet
+              restartPolicy: Never
+              nodeSelector:
+                cloud.google.com/gke-tpu-accelerator: tpu7x
+                cloud.google.com/gke-tpu-topology: 2x2x4
+              tolerations:
+              - key: "google.com/tpu"
+                operator: "Exists"
+                effect: "NoSchedule"
+              serviceAccountName: storage-access
+              volumes:
+              - name: gcs-fuse-csi-ephemeral
+                csi:
+                  driver: gcsfuse.csi.storage.gke.io
+                  readOnly: false
+                  volumeAttributes:
+                   bucketName: briankang-irw-us-central1
+                   mountOptions: "implicit-dirs"
+                   fileCacheCapacity: "-1Mi"
+                   fileCacheForRangeRead: "true"
+                   metadataCacheTTLSeconds: "-1"
+                   metadataNegativeCacheTTLSeconds: "0"
+                   metadataStatCacheCapacity: "-1Mi"
+                   metadataTypeCacheCapacity: "-1Mi"
+              containers:
+              - name: jax-tpu
+                image: us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/maxtext-xpk-qwiklab/maxtext-base:1
+                securityContext:
+                 #privileged: true
+        
+                command:
+                - bash
+                - -c
+                - |
+                  set -ex
+
+                  pip install -U --pre jax jaxlib libtpu requests -i https://us-python.pkg.dev/ml-oss-artifacts-published/jax/simple/ -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+                  pip install --upgrade clu
+                  export BASE_OUTPUT_DIR=/gcs-dir/output
+                  export PER_DEVICE_BATCH_SIZE=1 # This is tested on 64 chips (tpu7x-128) may need to adjust size for different device_types
+                  export NUM_STEPS=30
+                  export MAX_TARGET_LENGTH=8192
+                  export JAX_PLATFORMS=tpu,cpu
+                  export ENABLE_PJRT_COMPATIBILITY=true
+                  export TPU_SLICE_BUILDER_DUMP_CHIP_FORCE=true
+                  export TPU_SLICE_BUILDER_DUMP_ICI=true
+                  export PYTHONPATH=/deps:/deps/MaxText:$PYTHONPATH 
+                  python -m MaxText.train MaxText/configs/base.yml \
+                    base_output_directory=${BASE_OUTPUT_DIR} \
+                    dataset_type=synthetic \
+                    per_device_batch_size=${PER_DEVICE_BATCH_SIZE} \
+                    enable_checkpointing=false \
+                    gcs_metrics=true \
+                    profiler=xplane \
+                    skip_first_n_steps_for_profiler=5 \
+                    run_name=maxtext_xpk \
+                    steps=${NUM_STEPS}
+                env:
+                        - name: LIBTPU_INIT_ARGS
+                          value: "--xla_enable_async_all_gather=true TPU_MEGACORE=MEGACORE_DENSE"
+                        - name: TPU_STDERR_LOG_LEVEL
+                          value: "0"
+                        - name: TPU_MIN_LOG_LEVEL
+                          value: "0"
+                        - name: TF_CPP_MIN_LOG_LEVEL
+                          value: "0"
+                ports:
+                        - containerPort: 8471
+                        - containerPort: 8080 # Port for MXLA coordinator
+            
+                resources:
+                  limits:
+                    google.com/tpu: 4
+                volumeMounts:
+                - name: gcs-fuse-csi-ephemeral
+                  mountPath: /gcs-dir

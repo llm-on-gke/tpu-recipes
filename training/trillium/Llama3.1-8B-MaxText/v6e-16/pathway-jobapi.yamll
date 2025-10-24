@@ -1,0 +1,64 @@
+apiVersion: pathways-job.pathways.domain/v1
+kind: PathwaysJob
+metadata:
+  name: pathways-test
+spec:
+  maxRestarts: 2
+  workers:
+  - type: ct6e-standard-4t
+    topology: 2x4
+    numSlices: 2
+  pathwaysDir: "gs://rick-maxdiffusion"
+  controller:
+    deploymentMode: default
+    elasticSlices: 1 # For elastic training
+    mainContainerName: elastic-main
+    template:
+      spec:
+        containers:
+        - name: elastic-main
+          image: us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_base_image:latest
+          env:
+                - name: JOBSET_NAME
+                  value: "maxtext-vlp16-default"
+                - name: LIBTPU_INIT_ARGS
+                  value: "--xla_enable_async_all_gather=true TPU_MEGACORE=MEGACORE_DENSE"
+                - name: TPU_STDERR_LOG_LEVEL
+                  value: "0"
+                - name: TPU_MIN_LOG_LEVEL
+                  value: "0"
+                - name: TF_CPP_MIN_LOG_LEVEL
+                  value: "0"
+          ports:
+                - containerPort: 8471
+                - containerPort: 8080 # Port for MXLA coordinator
+          command:
+          - bash
+          - -c
+          - |
+            #pip install -U --pre jax jaxlib libtpu requests -i https://us-python.pkg.dev/ml-oss-artifacts-published/jax/simple/ -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+            #pip install --upgrade clu
+            #export BASE_OUTPUT_DIR=/gcs-dir/output
+            export PER_DEVICE_BATCH_SIZE=1 # This is tested on 64 chips (tpu7x-128) may need to adjust size for different device_types
+            export NUM_STEPS=30
+            export MAX_TARGET_LENGTH=8192
+            export JAX_PLATFORMS=tpu,cpu
+            export ENABLE_PJRT_COMPATIBILITY=true
+            export TPU_SLICE_BUILDER_DUMP_CHIP_FORCE=true
+            export TPU_SLICE_BUILDER_DUMP_ICI=true
+            export PYTHONPATH=/deps:/deps/MaxText:$PYTHONPATH 
+            python3 -m MaxText.train MaxText/configs/base.yml \
+            base_output_directory=gs://rick-maxdiffusion/output \
+            run_name=rick-pathway-test \
+            per_device_batch_size=1 \
+            enable_checkpointing=false \
+            remat_policy=full \
+            global_parameter_scale=1 \
+            steps=20 \
+            max_target_length=2048 \
+            use_iota_embed=true \
+            reuse_example_batch=1 \
+            dataset_type=synthetic \
+            attention=flash \
+            gcs_metrics=True \
+            enable_single_controller=True

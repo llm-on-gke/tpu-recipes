@@ -1,0 +1,200 @@
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: pathways
+spec:
+  # --- Policy Configuration ---
+  failurePolicy:
+    # The JobSet will be restarted on failure up to 1 time.
+    maxRestarts: 10
+  successPolicy:
+    # All Pods belonging to the 'main' ReplicatedJob must succeed for the JobSet to be considered successful.
+    operator: "All"
+    targetReplicatedJobs:
+    - main
+  
+  # --- ReplicatedJobs Configuration ---
+  replicatedJobs:
+    
+    # 1. Worker ReplicatedJob (TPU nodes)
+    - name: worker
+      replicas: 1 # Number of TPU PodSlices (e.g., two 2x4 PodSlices)
+      template:
+        metadata:
+          annotations:
+            # Ensures Pods from different JobSet instances don't share the same node pool
+            alpha.jobset.sigs.k8s.io/exclusive-topology: cloud.google.com/gke-nodepool
+        spec:
+          # Must match the number of nodes in each TPU PodSlice (e.g., for 2x4, this is 8)
+          parallelism: 2
+          completions: 2
+          # Fail the Job quickly if any Pod fails
+          backoffLimit: 0
+          template:
+            spec:
+              nodeSelector:
+                # Select the TPU PodSlice nodes
+                cloud.google.com/gke-tpu-accelerator: tpu-v6e-slice
+                cloud.google.com/gke-tpu-topology: 2x4
+              tolerations:
+              - key: "google.com/tpu"
+                operator: Exists
+                effect: NoSchedule
+             
+              containers:
+              - name: pathways-worker
+                image: us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:latest
+                imagePullPolicy: Always
+                args:
+                - --pathways_server_port=38677
+                # Assumes Resource Manager (rm) is running as rm-0-0 in the default namespace
+                - --pathways_resource_manager=pathways-rm-0-0.pathways.default.svc.$CLUSTER-domain.:38677
+                - --pathways_tmp_dir_pattern=gs://rick-maxdiffusion/tmp
+                - --alsologtostderr
+                - --pathways_compilation_mode=compile_at_worker
+                ports:
+                - containerPort: 38677
+                - containerPort: 8471
+                - containerPort: 8080 # Port for MXLA coordinator
+                securityContext:
+                  privileged: true # Required for some TPU operations
+                volumeMounts:
+                - mountPath: /tmp
+                  name: shared-tmp
+                resources:
+                  limits:
+                    # Requests 4 TPU chips per worker Pod (4 chips per node)
+                    google.com/tpu: 4
+              volumes:
+              - name: shared-tmp
+                hostPath:
+                  path: /tmp
+                  type: DirectoryOrCreate
+
+    # 2. Resource Manager ReplicatedJob (CPU node)
+    - name: rm
+      replicas: 1 # Should always be 1 for the Resource Manager
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            spec:
+              nodeSelector:
+                cloud.google.com/gke-nodepool: cpu-rm-np # Dedicated CPU node pool for RM
+              containers:
+              - name: pathways-rm
+                image: us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:latest
+                imagePullPolicy: Always
+                args:
+                - --alsologtostderr
+                - --pathways_server_port=38677
+                - --pathways_tmp_dir_pattern=gs://cloud-pathways-staging/tmp
+                - --pathways_server_provides_devices=false
+                - --pathways_device_type=NONE
+                - --pathways_compilation_mode=compile_at_worker
+                # Total expected workers: 2 workers * 1 pod/worker = 2 instances.
+                # Assuming the worker topology is 2x4 and only one chunk per job
+                - --pathways_expected_instances=tpuv4:2x2x2,tpuv4:2x2x2
+                env:
+                - name: TPU_SKIP_MDS_QUERY
+                  value: "true"
+                - name: REPLICATED_JOB_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']
+                - name: JOBSET_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.annotations['jobset.sigs.k8s.io/jobset-name']
+                - name: HOST_ADDRESS
+                  # Sets the RM service address for discovery
+                  value: $(JOBSET_NAME)-$(REPLICATED_JOB_NAME)-0-0.$(JOBSET_NAME)
+                ports:
+                - containerPort: 38677
+                resources:
+                  limits:
+                    cpu: "2"
+                    memory: "8G"
+                volumeMounts:
+                - mountPath: /tmp
+                  name: shared-tmp
+              volumes:
+              - name: shared-tmp
+                hostPath:
+                  path: /tmp
+                  type: DirectoryOrCreate
+
+    # 3. IFRT Proxy ReplicatedJob (CPU node)
+    - name: proxy
+      replicas: 1 # Should always be 1 for the IFRT Proxy
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            spec:
+              nodeSelector:
+                cloud.google.com/gke-nodepool: cpu-proxy-np # Dedicated CPU node pool for Proxy
+              containers:
+              - name: pathways-proxy
+                image: us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:latest
+                args:
+                - --pathways_ifrt_proxy_server_port=38676
+                - --alsologtostderr
+                - --v=0
+                # Points to the Resource Manager Pod's service
+                - --pathways_ifrt_proxy_server_resource_manager=pathways-rm-0-0.pathways.default.svc.$CLUSTER-domain.:38677
+                - --pathways_tmp_dir_pattern=gs://rick-maxdiffusion/tmp
+                - --pathways_plaque_network=gcp
+                ports:
+                - containerPort: 38676
+                resources:
+                  limits:
+                    cpu: "24"
+                    memory: "100G"
+
+    # 4. Main User ReplicatedJob (CPU node, client/launcher)
+    - name: main
+      replicas: 1
+      template:
+        spec:
+          backoffLimit: 0
+          completions: 1
+          parallelism: 1
+          template:
+            spec:
+              nodeSelector:
+                cloud.google.com/gke-nodepool: cpu-user-np # Dedicated CPU node pool for user/client
+              containers:
+              - name: user
+                image: us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_base_image:latest
+                imagePullPolicy: Always
+                command:
+                - bash
+                - -c
+                - |
+                  pip install "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+                  python -c 'import jax; import pathwaysutils; print("Global device count:", jax.device_count())'
+                resources:
+                  limits:
+                    cpu: "24"
+                    memory: "100G"
+                volumeMounts:
+                - mountPath: /tmp
+                  name: shared-tmp
+                env:
+                - name: XCLOUD_ENVIRONMENT
+                  value: "GCP"
+                - name: JAX_PLATFORMS
+                  value: "proxy" # Use the proxy backend for JAX
+                - name: JAX_BACKEND_TARGET
+                  # Points JAX to the IFRT Proxy service
+                  value: "grpc://pathways-proxy-0-0.pathways.default.svc.$CLUSTER-domain.:38676"
+              volumes:
+              - name: shared-tmp
+                hostPath:
+                  path: /tmp
+                  type: DirectoryOrCreate
