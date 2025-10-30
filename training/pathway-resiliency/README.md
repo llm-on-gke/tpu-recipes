@@ -31,11 +31,15 @@ docker push us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_resilie
 
 
 #### Prepare TPU VM or GKE TPU Cluster to run prerequisistes
+Prerequisites:
+Have a GKE cluster ready to install nodepools. 
+
+Update config and run the following shell script
 ```
 bash pathway-tpu-nodepool.sh
 ```
 
-
+Validate one CPU nodepool and 2 trillium nodepools created. 
 #### Download dataset
 
 
