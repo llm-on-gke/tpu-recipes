@@ -16,6 +16,7 @@ DEVICE=tpu
 IMAGE_LOCATION=us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_resiliency_image:latest
 LOCAL_IMAGE_NAME=maxtext_resiliency_image
 bash ./docker_build_dependency_image.sh LOCAL_IMAGE_NAME="${LOCAL_IMAGE_NAME}" MODE="$MODE" DEVICE="$DEVICE"
+```
 
 e.g., bash ./docker_build_dependency_image.sh LOCAL_IMAGE_NAME="maxtext_resiliency_image" MODE="stable" DEVICE="tpu"
 
