@@ -6,14 +6,15 @@ Please follow the [XPK_README](https://github.com/AI-Hypercomputer/tpu-recipes/b
 ## Prep for Maxtext
 
 ### Install Maxttext and Build Docker Image for Pathway resiliency
+```
 git clone https://github.com/AI-Hypercomputer/maxtext/
 cd maxtext
 git checkout lukebaumann-pause-resume
 
-MODE=nightly #or stable
+MODE=stable #or nightly
 DEVICE=tpu
 IMAGE_LOCATION=us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_resiliency_image:latest
-LOCAL_IMAGE_NAME=maxtext_pathways_image
+LOCAL_IMAGE_NAME=maxtext_resiliency_image
 bash ./docker_build_dependency_image.sh LOCAL_IMAGE_NAME="${LOCAL_IMAGE_NAME}" MODE="$MODE" DEVICE="$DEVICE"
 
 e.g., bash ./docker_build_dependency_image.sh LOCAL_IMAGE_NAME="maxtext_resiliency_image" MODE="stable" DEVICE="tpu"
@@ -22,7 +23,7 @@ https://source.corp.google.com/piper///depot/google3/cloud/tpu/tools/multipod/ko
 
 Tag and push the image to atifact registry
 ```
-docker tag maxtext_base_image us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_resiliency_image:latest
+docker tag maxtext_resiliency_image us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_resiliency_image:latest
 gcloud auth configure-docker us-east4-docker.pkg.dev
 docker push us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_resiliency_image:latest #replace with your own image path
 ```
@@ -60,7 +61,7 @@ completed step: 14, seconds: 3.393, TFLOP/s/device: 419.485, Tokens/s/device: 72
 
 ### Demo Details
 
-There are 2 slices of trillium 2x4t. 
+There are 4 nodes( 2 slices of trillium 2x4t nodes) 
 Choose any of tpu node, 
 ```
 node_name=XXXX
