@@ -73,4 +73,4 @@ echo "Uncordoning node '$node_name' to allow scheduling again."
 kubectl uncordon "$node_name"
 ```
 Check logs for the elastic training, with 2 clices running, then 1 slice taking down while 1 other slice keep working, then 2 slices backup working again.
-[Demo video](https://drive.google.com/corp/drive/folders/1gqEHIQeAo9lWnYUShZaXjt1h3Q3Ptkhj) 
+[Demo video](https://drive.google.com/file/d/1ZVtEQICIw60XRf1K_8iKcoiC_m-qF2Td/view?usp=sharing) 
