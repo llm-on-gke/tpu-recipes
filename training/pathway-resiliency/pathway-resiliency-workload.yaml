@@ -1,0 +1,43 @@
+apiVersion: pathways-job.pathways.domain/v1
+kind: PathwaysJob
+metadata:
+  name: pathways-test
+spec:
+  maxRestarts: 2
+  workers:
+  - type: ct6e-standard-4t
+    topology: 2x4
+    numSlices: 2
+    maxSliceRestarts: 4 
+  pathwaysDir: "gs://rick-maxdiffusion"
+  controller:
+    deploymentMode: default
+    elasticSlices: 1 # For elastic training
+    mainContainerName: elastic-main
+    template:
+      spec:
+        containers:
+        - name: elastic-main
+          image: us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_resiliency_image:latest #us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_pathway_image:latest
+         
+          command:
+          - bash
+          - -c
+          - |
+            MAX_SLICE_RESTARTS=100
+            #sleep infinity
+            python3 -m MaxText.train \
+            MaxText/configs/base.yml \
+            base_output_directory=gs://rick-maxdiffusion/output \
+            per_device_batch_size=1 \
+            enable_checkpointing=false \
+            remat_policy=full \
+            global_parameter_scale=1 \
+            steps=200000 \
+            max_target_length=2048 \
+            use_iota_embed=true \
+            reuse_example_batch=1 \
+            dataset_type=synthetic \
+            attention=flash \
+            gcs_metrics=True \
+            run_name=rick-elastic 

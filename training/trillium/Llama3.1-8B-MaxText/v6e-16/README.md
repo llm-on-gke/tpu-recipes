@@ -20,20 +20,17 @@ bash setup.sh
 if machines can not run pip install, 
 install uv, replace all pip install with uv pip install 
 
-
-
 In step 3, use the jax-stable-stack image containing JAX 0.6.1:
-```
+```docker 
 BASE_IMAGE=us-docker.pkg.dev/cloud-tpu-images/jax-ai-image/tpu:jax0.6.1-rev1
 bash docker_build_dependency_image.sh DEVICE=tpu MODE=stable_stack BASEIMAGE=${BASE_IMAGE}
 ```
 Tag and push the image to atifact registry
 ```
-docker tag ${BASE_IMAGE} us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_base_image:latest
+docker tag maxtext_base_image us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_base_image:latest
 gcloud auth configure-docker us-east4-docker.pkg.dev
 docker push us-east4-docker.pkg.dev/diesel-patrol-382622/gke-llm/maxtext_base_image:latest #replace with your own image path
 ```
-
 ## Run Maxtext Llama3.1-8B workloads on GKE
 
 ### Llama3.1-8B Fine Tuning:
